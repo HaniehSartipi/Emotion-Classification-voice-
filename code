@@ -1,0 +1,647 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+
+
+import pandas as pd
+
+
+!pip install librosa
+!pip install pandas
+!pip install zipfile36
+
+import os
+
+drive_path = '/content/drive/My Drive'
+
+for root, dirs, files in os.walk(drive_path):
+    for name in dirs:
+        print(os.path.join(root, name))
+    for name in files:
+        print(os.path.join(root, name))
+
+
+
+import zipfile
+import os
+
+zip_path = '/content/drive/My Drive/Train(1).zip'
+extract_path = '/content/Train_extracted'
+
+with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    zip_ref.extractall(extract_path)
+
+for root, dirs, files in os.walk(extract_path):
+    for filename in files:
+        print(os.path.join(root, filename))
+
+import os
+import librosa
+import numpy as np
+import pandas as pd
+
+extract_path = '/content/Train_extracted'
+
+features_list = []
+
+for root, dirs, files in os.walk(extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+
+            file_path = os.path.join(root, filename)
+
+            y, sr = librosa.load(file_path, sr=None)
+
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+
+            file_id = filename[:-7]
+            emotion = filename[-7]
+            gender = filename[-6]
+
+            features_list.append([file_id, gender, emotion, *mfccs_mean])
+
+columns = ['file_id', 'gender', 'emotion'] + [f'mfcc_{i+1}' for i in range(13)]
+df_features = pd.DataFrame(features_list, columns=columns)
+
+print(df_features.head())
+
+df_features.to_csv('audio_features.csv', index=False)
+
+
+
+import zipfile
+import pandas as pd
+
+test_zip_path = '/content/drive/My Drive/Test.zip'
+test_extract_path = '/content/Test_extracted'
+
+with zipfile.ZipFile(test_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(test_extract_path)
+
+labels_path = '/content/drive/My Drive/result.csv'
+labels_df = pd.read_csv(labels_path)
+print(labels_df.head())
+
+
+
+import zipfile
+import pandas as pd
+
+test_zip_path = '/content/drive/My Drive/Test.zip'
+test_extract_path = '/content/Test_extracted'
+
+with zipfile.ZipFile(test_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(test_extract_path)
+
+labels_path = '/content/drive/My Drive/result.csv'
+labels_df = pd.read_csv(labels_path)
+
+print(labels_df.columns)
+print(labels_df.head())
+
+
+
+test_features_list = []
+
+
+for root, dirs, files in os.walk(test_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+
+            file_path = os.path.join(root, filename)
+
+            y, sr = librosa.load(file_path, sr=None)
+
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+
+            file_id = filename[:-4]
+
+            test_features_list.append([file_id, *mfccs_mean])
+
+columns = ['file_id'] + [f'mfcc_{i+1}' for i in range(13)]
+test_df_features = pd.DataFrame(test_features_list, columns=columns)
+
+print(test_df_features.head())
+
+
+
+for root, dirs, files in os.walk(train_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+            print(filename)
+
+import zipfile
+import librosa
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.utils import to_categorical
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+train_zip_path = '/content/drive/My Drive/Train(1).zip'
+train_extract_path = '/content/Train_extracted'
+
+with zipfile.ZipFile(train_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(train_extract_path)
+
+train_features_list = []
+
+for root, dirs, files in os.walk(train_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+
+            file_path = os.path.join(root, filename)
+
+            y, sr = librosa.load(file_path, sr=None)
+
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+
+            file_id = filename[:4]
+            gender_emotion = filename[4:6]
+
+            gender = gender_emotion[0]
+            emotion = gender_emotion[1]
+
+            emotion_map = {'A': 'Anger', 'H': 'Happiness', 'S': 'Sadness', 'N': 'Neutral', 'W': 'Wonder'}
+            emotion = emotion_map.get(emotion, 'Unknown')
+
+            train_features_list.append([file_id, emotion, *mfccs_mean])
+
+columns = ['id', 'emotion'] + [f'mfcc_{i+1}' for i in range(13)]
+train_df_features = pd.DataFrame(train_features_list, columns=columns)
+
+print(train_df_features.head())
+
+emotion_labels = train_df_features['emotion'].astype('category').cat.codes
+train_df_features['emotion'] = emotion_labels
+
+X_train = train_df_features.drop(['id', 'emotion'], axis=1).values
+y_train = to_categorical(train_df_features['emotion'])
+
+X_train = np.expand_dims(X_train, axis=-1)
+
+model = Sequential()
+model.add(LSTM(64, input_shape=(13, 1), return_sequences=True))
+model.add(LSTM(64))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(len(np.unique(emotion_labels)), activation='softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.2)
+
+plt.plot(history.history['accuracy'], label='train accuracy')
+plt.plot(history.history['val_accuracy'], label='validation accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['loss'], label='train loss')
+plt.plot(history.history['val_loss'], label='validation loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+
+test_zip_path = '/content/drive/My Drive/Test.zip'
+test_extract_path = '/content/Test_extracted'
+
+with zipfile.ZipFile(test_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(test_extract_path)
+
+test_features_list = []
+
+for root, dirs, files in os.walk(test_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+            file_path = os.path.join(root, filename)
+            y, sr = librosa.load(file_path, sr=None)
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+            test_features_list.append([filename[:4], *mfccs_mean])
+
+test_columns = ['id'] + [f'mfcc_{i+1}' for i in range(13)]
+test_df_features = pd.DataFrame(test_features_list, columns=test_columns)
+
+labels_path = '/content/drive/My Drive/result.csv'
+labels_df = pd.read_csv(labels_path)
+
+print(labels_df.head())
+
+labels_df.rename(columns={'Id': 'id', 'label': 'emotion'}, inplace=True)
+
+labels_df['id'] = labels_df['id'].str[:4]
+
+print(test_df_features.head())
+print(labels_df.head())
+
+test_df = pd.merge(test_df_features, labels_df, on='id', how='inner')
+
+print(test_df.head())
+print(test_df.shape)
+
+test_df['emotion'] = test_df['emotion'].astype('category').cat.codes
+
+X_test = test_df.drop(['id', 'emotion'], axis=1).values
+y_test = to_categorical(test_df['emotion'])
+
+print(X_test.shape)
+print(y_test.shape)
+
+X_test = np.expand_dims(X_test, axis=-1)
+
+test_loss, test_accuracy = model.evaluate(X_test, y_test)
+print(f'Test Loss: {test_loss}, Test Accuracy: {test_accuracy}')
+
+y_pred = model.predict(X_test)
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true = np.argmax(y_test, axis=1)
+
+conf_matrix = confusion_matrix(y_true, y_pred_classes)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=np.unique(test_df['emotion']))
+disp.plot(cmap=plt.cm.Blues)
+plt.show()
+
+
+model = Sequential()
+model.add(GRU(64, input_shape=(13, 1), return_sequences=True))
+model.add(GRU(64))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(len(np.unique(emotion_labels)), activation='softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.2)
+
+plt.plot(history.history['accuracy'], label='train accuracy')
+plt.plot(history.history['val_accuracy'], label='validation accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['loss'], label='train loss')
+plt.plot(history.history['val_loss'], label='validation loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+test_zip_path = '/content/drive/My Drive/Test.zip'
+test_extract_path = '/content/Test_extracted'
+
+with zipfile.ZipFile(test_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(test_extract_path)
+
+test_features_list = []
+
+for root, dirs, files in os.walk(test_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+
+            file_path = os.path.join(root, filename)
+
+            y, sr = librosa.load(file_path, sr=None)
+
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+
+            test_features_list.append([filename[:4], *mfccs_mean])
+
+test_columns = ['id'] + [f'mfcc_{i+1}' for i in range(13)]
+test_df_features = pd.DataFrame(test_features_list, columns=test_columns)
+
+labels_path = '/content/drive/My Drive/result.csv'
+labels_df = pd.read_csv(labels_path)
+
+print(labels_df.head())
+
+labels_df.rename(columns={'Id': 'id', 'label': 'emotion'}, inplace=True)
+
+labels_df['id'] = labels_df['id'].str[:4]
+
+print(test_df_features.head())
+print(labels_df.head())
+
+test_df = pd.merge(test_df_features, labels_df, on='id', how='inner')
+
+print(test_df.head())
+print(test_df.shape)
+
+test_df['emotion'] = test_df['emotion'].astype('category').cat.codes
+
+X_test = test_df.drop(['id', 'emotion'], axis=1).values
+y_test = to_categorical(test_df['emotion'])
+
+print(X_test.shape)
+print(y_test.shape)
+
+X_test = np.expand_dims(X_test, axis=-1)
+
+test_loss, test_accuracy = model.evaluate(X_test, y_test)
+print(f'Test Loss: {test_loss}, Test Accuracy: {test_accuracy}')
+
+y_pred = model.predict(X_test)
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true = np.argmax(y_test, axis=1)
+
+conf_matrix = confusion_matrix(y_true, y_pred_classes)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=np.unique(test_df['emotion']))
+disp.plot(cmap=plt.cm.Blues)
+plt.show()
+
+train_zip_path = '/content/drive/My Drive/Train(1).zip'
+train_extract_path = '/content/Train_extracted'
+
+with zipfile.ZipFile(train_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(train_extract_path)
+
+train_features_list = []
+
+for root, dirs, files in os.walk(train_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+            file_path = os.path.join(root, filename)
+            y, sr = librosa.load(file_path, sr=None)
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+            file_id = filename[:4]
+            gender_emotion = filename[4:6]
+
+            gender = gender_emotion[0]
+            emotion = gender_emotion[1]
+
+            emotion_map = {'A': 'Anger', 'H': 'Happiness', 'S': 'Sadness', 'N': 'Neutral', 'W': 'Wonder'}
+            emotion = emotion_map.get(emotion, 'Unknown')
+
+            train_features_list.append([file_id, emotion, *mfccs_mean])
+
+columns = ['id', 'emotion'] + [f'mfcc_{i+1}' for i in range(13)]
+train_df_features = pd.DataFrame(train_features_list, columns=columns)
+
+print(train_df_features.head())
+
+emotion_distribution_train = train_df_features['emotion'].value_counts()
+print("توزیع کلاس‌های احساسات در داده‌های آموزشی:")
+print(emotion_distribution_train)
+
+emotion_labels = train_df_features['emotion'].astype('category').cat.codes
+train_df_features['emotion'] = emotion_labels
+
+emotion_labels = train_df_features['emotion'].astype('category').cat.codes
+train_df_features['emotion'] = emotion_labels
+
+class_weights = emotion_distribution_train.max() / emotion_distribution_train
+class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+print("وزن‌های کلاس‌ها:")
+print(class_weight_dict)
+
+X_train = train_df_features.drop(['id', 'emotion'], axis=1).values
+y_train = to_categorical(train_df_features['emotion'])
+
+X_train = np.expand_dims(X_train, axis=-1)
+
+model = Sequential()
+model.add(GRU(64, input_shape=(13, 1), return_sequences=True))
+model.add(GRU(64))
+model.add(Dense(32, activation='leaky_relu'))
+model.add(Dense(len(np.unique(emotion_labels)), activation='softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.2, class_weight=class_weight_dict)
+
+plt.plot(history.history['accuracy'], label='train accuracy')
+plt.plot(history.history['val_accuracy'], label='validation accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['loss'], label='train loss')
+plt.plot(history.history['val_loss'], label='validation loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+test_zip_path = '/content/drive/My Drive/Test.zip'
+test_extract_path = '/content/Test_extracted'
+
+with zipfile.ZipFile(test_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(test_extract_path)
+
+test_features_list = []
+
+for root, dirs, files in os.walk(test_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+            file_path = os.path.join(root, filename)
+            y, sr = librosa.load(file_path, sr=None)
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+            test_features_list.append([filename[:4], *mfccs_mean])
+
+test_columns = ['id'] + [f'mfcc_{i+1}' for i in range(13)]
+test_df_features = pd.DataFrame(test_features_list, columns=test_columns)
+
+labels_path = '/content/drive/My Drive/result.csv'
+labels_df = pd.read_csv(labels_path)
+
+print(labels_df.head())
+
+labels_df.rename(columns={'Id': 'id', 'label': 'emotion'}, inplace=True)
+
+labels_df['id'] = labels_df['id'].str[:4]
+
+print(test_df_features.head())
+print(labels_df.head())
+
+test_df = pd.merge(test_df_features, labels_df, on='id', how='inner')
+
+print(test_df.head())
+print(test_df.shape)
+
+emotion_distribution_test = test_df['emotion'].value_counts()
+print("توزیع کلاس‌های احساسات در داده‌های تست:")
+print(emotion_distribution_test)
+
+test_df['emotion'] = test_df['emotion'].astype('category').cat.codes
+
+X_test = test_df.drop(['id', 'emotion'], axis=1).values
+y_test = to_categorical(test_df['emotion'])
+
+print(X_test.shape)
+print(y_test.shape)
+
+X_test = np.expand_dims(X_test, axis=-1)
+
+test_loss, test_accuracy = model.evaluate(X_test, y_test)
+print(f'Test Loss: {test_loss}, Test Accuracy: {test_accuracy}')
+
+y_pred = model.predict(X_test)
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true = np.argmax(y_test, axis=1)
+
+conf_matrix = confusion_matrix(y_true, y_pred_classes)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=np.unique(test_df['emotion']))
+disp.plot(cmap=plt.cm.Blues)
+plt.show()
+
+train_zip_path = '/content/drive/My Drive/Train(1).zip'
+train_extract_path = '/content/Train_extracted'
+
+with zipfile.ZipFile(train_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(train_extract_path)
+
+train_features_list = []
+
+for root, dirs, files in os.walk(train_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+            file_path = os.path.join(root, filename)
+
+            y, sr = librosa.load(file_path, sr=None)
+
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+
+            file_id = filename[:4]
+            gender_emotion = filename[4:6]
+
+            gender = gender_emotion[0]
+            emotion = gender_emotion[1]
+
+            emotion_map = {'A': 0, 'H': 1, 'S': 2, 'N': 3, 'W': 4}
+            gender_map = {'M': 0, 'F': 1}
+
+            emotion = emotion_map.get(emotion, -1)
+            gender = gender_map.get(gender, -1)
+
+            train_features_list.append([file_id, gender, emotion, *mfccs_mean])
+
+
+columns = ['id', 'gender', 'emotion'] + [f'mfcc_{i+1}' for i in range(13)]
+train_df_features = pd.DataFrame(train_features_list, columns=columns)
+
+print(train_df_features.head())
+
+X_train = train_df_features.drop(['id', 'emotion'], axis=1).values
+y_train = to_categorical(train_df_features['emotion'])
+
+X_train = np.expand_dims(X_train, axis=-1)
+
+model = Sequential()
+model.add(LSTM(64, input_shape=(14, 1), return_sequences=True))
+model.add(LSTM(64))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(len(np.unique(train_df_features['emotion'])), activation='softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+
+history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.2)
+
+
+plt.plot(history.history['accuracy'], label='train accuracy')
+plt.plot(history.history['val_accuracy'], label='validation accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['loss'], label='train loss')
+plt.plot(history.history['val_loss'], label='validation loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+test_zip_path = '/content/drive/My Drive/Test.zip'
+test_extract_path = '/content/Test_extracted'
+
+with zipfile.ZipFile(test_zip_path, 'r') as zip_ref:
+    zip_ref.extractall(test_extract_path)
+
+test_features_list = []
+
+for root, dirs, files in os.walk(test_extract_path):
+    for filename in files:
+        if filename.endswith('.wav'):
+            file_path = os.path.join(root, filename)
+
+            y, sr = librosa.load(file_path, sr=None)
+
+            mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            mfccs_mean = np.mean(mfccs, axis=1)
+
+            file_id = filename[:4]
+            gender_emotion = filename[4:6]
+
+            gender = gender_emotion[0]
+            gender_map = {'M': 0, 'F': 1}
+            gender = gender_map.get(gender, -1)
+
+            test_features_list.append([file_id, gender, *mfccs_mean])
+
+test_columns = ['id', 'gender'] + [f'mfcc_{i+1}' for i in range(13)]
+test_df_features = pd.DataFrame(test_features_list, columns=test_columns)
+
+
+labels_path = '/content/drive/My Drive/result.csv'
+labels_df = pd.read_csv(labels_path)
+
+print(labels_df.head())
+
+labels_df.rename(columns={'Id': 'id', 'label': 'emotion'}, inplace=True)
+
+labels_df['id'] = labels_df['id'].str[:4]
+
+print(test_df_features.head())
+print(labels_df.head())
+
+test_df = pd.merge(test_df_features, labels_df, on='id', how='inner')
+
+print(test_df.head())
+print(test_df.shape)
+
+test_df['emotion'] = test_df['emotion'].astype('category').cat.codes
+
+X_test = test_df.drop(['id', 'emotion'], axis=1).values
+y_test = to_categorical(test_df['emotion'])
+
+print(X_test.shape)
+print(y_test.shape)
+
+X_test = np.expand_dims(X_test, axis=-1)
+
+test_loss, test_accuracy = model.evaluate(X_test, y_test)
+print(f'Test Loss: {test_loss}, Test Accuracy: {test_accuracy}')
+
+y_pred = model.predict(X_test)
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true = np.argmax(y_test, axis=1)
+
+conf_matrix = confusion_matrix(y_true, y_pred_classes)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=np.unique(test_df['emotion']))
+disp
+
+
+
+conf_matrix = confusion_matrix(y_true, y_pred_classes)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=np.unique(test_df['emotion']))
+disp.plot(cmap=plt.cm.Blues)
+plt.show()
